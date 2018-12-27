@@ -12,11 +12,14 @@ transform = transforms.Compose([transforms.ToTensor(),
                                ])
 
 
-# Download and load the training data
+# Download and load the training data: Divide the data into training and testing set
 # Batchsize: number of images we get from data loader in one iteration and is passed through our network
 # shuffle: shuffle the data set every time we start going through the data loader again
 trainset = datasets.MNIST('~/.pytorch/MNIST_data', download = True, train= True, transform=transform)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True)
+
+testset = datasets.MNIST('~/.pytorch/MNIST_data', download = True, train= False, transform=transform)
+testloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True)
 
 '''
 # How each image looks like
@@ -82,8 +85,9 @@ optimizer = optim.SGD(model.parameters(), lr=0.003)
 
 images, labels = next(iter(trainloader))
 
-epochs = 10
+epochs = 50
 
+train_losses, test_losses = [], []
 for e in range(epochs):
     running_loss = 0
     for images, labels in trainloader:
@@ -103,14 +107,49 @@ for e in range(epochs):
         optimizer.step()
         #print('Updated weights -', model[0].weight)
         running_loss += loss.item()
-    else:
-        print(f"Training loss: {running_loss/len(trainloader)}")
+
+    else:  # when training is done, carry on with Testing/Validation/Inference
+
+        test_loss = 0
+        accuracy = 0
+
+        # Turn off gradients for validation as it saves memory and computation
+        with torch.no_grad():
+            for images, labels in testloader:
+                # Flatten Images images pixels to a vector
+                images = images.view(images.shape[0], -1)
+
+                logprob = model(images)
+                test_loss += criterion(logprob, labels)
+                prob = torch.exp(logprob)  # converting it into probabilities from log_prob
+
+                # top_p is the probabilities value and the top_class is the class
+                top_p, top_class = prob.topk(1, dim=1)  # topk gives the class with the highest probab
+
+                # top_class is a 2D tensor of shape (64*1) and labels is a 1D tensor of size 64, so making the same shapes
+                # equals give 0 or 1 if they match or not
+                equals = top_class == labels.view(*top_class.shape)
+
+                # accuracy = sum of 1's/total numbers
+                # torch.mean does not work for byte tensor (equals), so changing that to flaot_tensor
+                accuracy += torch.mean(equals.type(torch.FloatTensor))
+
+        train_losses.append(running_loss/len(trainloader))
+        test_losses.append(test_loss/len(testloader))
+
+        print("Epoch: {}/{}.. ".format(e+1, epochs),
+              "Training Loss: {:.3f}.. ".format(running_loss/len(trainloader)),
+              "Test Loss: {:.3f}.. ".format(test_loss / len(testloader)),
+              "Test Accuracy: {:.3f}.. ".format(accuracy / len(testloader))
+              )
+
+
+
+
 
 
 
 # TESTING: Check predictions of an image with the trained model
-
-
 img = images[0].view(1, 784)
 
 # Turn off gradients to speed up this part
@@ -120,3 +159,8 @@ with torch.no_grad():
 # Output of the network are logits, need to take softmax for probabilities
 ps = F.softmax(logits, dim=1)
 helper.view_classify(img.view(1,28, 28), ps)
+
+# Plot the losses
+plt.plot(train_losses, label='Training loss')
+plt.plot(test_losses, label='Validation loss')
+plt.legend(frameon=False)
